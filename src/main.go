@@ -70,6 +70,7 @@ func startFlowExpr(c *gin.Context) {
 			"errMsg":    FAILED,
 			"ExprIndex": -1,
 		})
+		STATUS = UNRUNNING
 		return
 	}
 
