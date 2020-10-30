@@ -21,10 +21,19 @@ const (
 	SUCCESS string = "0"
 	FAILED  string = "-1"
 	MIDDLE  string = "1"
+	INITIAL string = "99"
 )
 
+// 记录进程状态，UNRUNNING未开始， RUNNING已收到执行脚本请求
 var STATUS int32 = UNRUNNING
+
+// 记录执行，有成功(SUCCESS)， 失败(FAILED)， 运行中(MIDDLE)， 实验未开始(INITIAL，此状态出现在程序刚运行、某次实验结束后另一次实验请求发起但没有到exec时会被改变为INITIAL)
+var ResultStatus string = INITIAL
+
+// 记录实验ID号(仅在此台服务器受用而非主流程那边)，用于与主流程交互时指定的实验号
 var ExprId int32 = -1
+
+// 脚本执行命令
 var cmdStr string = "../gatling/bin/gatling.sh" // 流量发送的指令
 
 // 初始化Logger
@@ -35,9 +44,8 @@ func init() {
 
 func main() {
 	r := gin.Default()
-	// 流量发送模块 begin=================
-	// 流量发送API
 
+	// 测试程序，暂保留
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "pong",
@@ -45,7 +53,7 @@ func main() {
 	})
 	r.POST("/startFlowExpr", startFlowExpr)
 	r.POST("/getResult", getResult)
-	// 流量发送模块 end=================
+
 	r.Run("192.168.0.171:58888")
 }
 
@@ -64,24 +72,30 @@ func startFlowExpr(c *gin.Context) {
 	var flowTypeIdx int32
 	var err error
 	flowTypeIdx, err = CheckPara(flowType)
+
+	// 直接返回，不经过脚本执行exec
+	// 此时需修改STATUS与ResultStatus
 	if err != nil {
+		STATUS = UNRUNNING
+		ResultStatus = INITIAL
 		logger.Error.Println("参数Error：", err)
 		c.JSON(200, gin.H{
 			"errMsg":    FAILED,
 			"ExprIndex": -1,
 		})
-		STATUS = UNRUNNING
 		return
 	}
 
 	// 发送流量
-	// 将持续时间参数传给脚本
 	// 启动发送流量脚本
 	var outInfo bytes.Buffer
 	cmd := exec.Command(cmdStr)
 	cmd.Stdin = strings.NewReader(flowType + "\n\n")
 	cmd.Stdout = &outInfo
 	err = cmd.Start()
+
+	// 修改结果状态
+	ResultStatus = MIDDLE
 
 	ExprId++
 	logger.Trace.Println("实验", ExprId, "开始，波形:", ":", flowTypeIdx)
@@ -115,8 +129,10 @@ func WaitExpr(cmd *exec.Cmd) {
 	if err != nil {
 		logger.Error.Println("流量发送脚本执行异常 ERROR:", err)
 		STATUS = UNRUNNING
+		ResultStatus = FAILED
 		return
 	}
+	ResultStatus = SUCCESS
 	STATUS = UNRUNNING
 }
 
@@ -135,7 +151,9 @@ func getResult(c *gin.Context) {
 
 	var exprId int64
 	var err error
+
 	exprId, err = strconv.ParseInt(exprStr, 10, 32)
+
 	if err != nil {
 		c.JSON(200, gin.H{
 			"errMsg": FAILED,
@@ -144,7 +162,9 @@ func getResult(c *gin.Context) {
 		logger.Error.Println("Expr Id 格式错误", exprStr)
 		return
 	}
-	if (int32)(exprId) != ExprId {
+
+	// 目测这个-1的判断是多余的，但先留着
+	if (int32)(exprId) != ExprId || ExprId == -1 {
 		c.JSON(200, gin.H{
 			"errMsg": FAILED,
 			"Msg":    "Not current experiment",
@@ -153,6 +173,7 @@ func getResult(c *gin.Context) {
 		return
 	}
 
+	// 运行中
 	if STATUS == RUNNING {
 		c.JSON(200, gin.H{
 			"errMsg": MIDDLE,
@@ -161,8 +182,10 @@ func getResult(c *gin.Context) {
 		logger.Trace.Println("尝试获取实验", exprId, "的状态，当前实状态为: RUNNING")
 		return
 	}
+
+	// 运行完毕
 	c.JSON(200, gin.H{
-		"errMsg": SUCCESS,
+		"errMsg": ResultStatus,
 		"Msg":    "FINISHED",
 	})
 	logger.Trace.Println("尝试获取实验", exprId, "的状态，当前实状态为: FINISHED")
