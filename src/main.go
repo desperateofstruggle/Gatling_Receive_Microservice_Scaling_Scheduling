@@ -27,6 +27,12 @@ var STATUS int32 = UNRUNNING
 var ExprId int32 = -1
 var cmdStr string = "../gatling/bin/gatling.sh" // 流量发送的指令
 
+// 初始化Logger
+func init() {
+	logger.LoggerInit()
+	logger.Trace.Println("start")
+}
+
 func main() {
 	r := gin.Default()
 	// 流量发送模块 begin=================
