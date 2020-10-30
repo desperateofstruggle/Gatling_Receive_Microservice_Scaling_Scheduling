@@ -38,7 +38,7 @@ func main() {
 		})
 	})
 	r.POST("/startFlowExpr", startFlowExpr)
-	r.POST("/getResult", startFlowExpr)
+	r.POST("/getResult", getResult)
 	// 流量发送模块 end=================
 	r.Run("192.168.0.171:58888")
 }
